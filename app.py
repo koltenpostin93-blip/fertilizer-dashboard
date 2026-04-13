@@ -2,8 +2,18 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from io import StringIO
 from datetime import datetime
+
+def _session():
+    """Requests session with retry + backoff."""
+    s = requests.Session()
+    retry = Retry(total=4, backoff_factor=2,
+                  status_forcelist=[429, 500, 502, 503, 504])
+    s.mount("https://", HTTPAdapter(max_retries=retry))
+    return s
 
 # ── Page config (must be first Streamlit call) ────────────────────────────────
 st.set_page_config(
@@ -176,35 +186,32 @@ BASE = "https://agtransport.usda.gov/api/views"
 @st.cache_data(ttl=86_400, show_spinner=False)
 def load_imports():
     """rusv-mgid – U.S. Fertilizer Imports by Commodity by Month (Census Bureau)"""
-    r = requests.get(f"{BASE}/rusv-mgid/rows.csv", params={"$limit": 50_000}, timeout=30)
+    r = _session().get(f"{BASE}/rusv-mgid/rows.csv", params={"$limit": 50_000}, timeout=120)
     r.raise_for_status()
     return pd.read_csv(StringIO(r.text), thousands=",")
 
 @st.cache_data(ttl=86_400, show_spinner=False)
 def load_barge():
     """4pdq-r8e8 – Monthly Fertilizer Barge Movements (Army Corps of Engineers)"""
-    r = requests.get(f"{BASE}/4pdq-r8e8/rows.csv", params={"$limit": 50_000}, timeout=30)
+    r = _session().get(f"{BASE}/4pdq-r8e8/rows.csv", params={"$limit": 50_000}, timeout=120)
     r.raise_for_status()
     return pd.read_csv(StringIO(r.text), thousands=",")
 
 @st.cache_data(ttl=3_600, show_spinner=False)
 def load_rail():
     """tb7q-kn5i – Weekly Rail Carloadings (Surface Transportation Board)"""
-    r = requests.get(f"{BASE}/tb7q-kn5i/rows.csv", params={"$limit": 250_000}, timeout=90)
+    r = _session().get(f"{BASE}/tb7q-kn5i/rows.csv", params={"$limit": 250_000}, timeout=180)
     r.raise_for_status()
     return pd.read_csv(StringIO(r.text), thousands=",")
 
 @st.cache_data(ttl=86_400, show_spinner=False)
 def load_rail_tonnage():
     """xve5-xb56 – Public Use Carload Waybill Sample: monthly fertilizer rail tonnage (STB)"""
-    # STCC codes for fertilizer: 28198 ammonia, 28125 potassium, 28181 misc,
-    # 28712 superphosphate/N solution, 28713 ammoniating/N solution, 28193 sulfuric acid
-    # Socrata SOQL requires quoted strings for text fields
     fert_stcc = "('28125','28181','28193','28198','28712','28713')"
-    r = requests.get(
+    r = _session().get(
         f"{BASE}/xve5-xb56/rows.csv",
         params={"$limit": 100_000, "$where": f"stcc5 in{fert_stcc}"},
-        timeout=60,
+        timeout=120,
     )
     r.raise_for_status()
     return pd.read_csv(StringIO(r.text), thousands=",")
