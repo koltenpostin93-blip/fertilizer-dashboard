@@ -251,72 +251,80 @@ if load_errors:
         st.warning(f"⚠️ **{dataset}** could not load: {err}")
 
 # ── Clean: Barge ─────────────────────────────────────────────────────────────
-df_barge = raw_barge.copy()
-df_barge["Year"]  = pd.to_numeric(df_barge["Year"],  errors="coerce").astype("Int64")
-df_barge["Month"] = pd.to_numeric(df_barge["Month"], errors="coerce").astype("Int64")
-df_barge["Tons"]  = pd.to_numeric(df_barge["Tons"].astype(str).str.replace(",",""), errors="coerce").fillna(0)
-df_barge = df_barge.dropna(subset=["Year","Month"])
+if not raw_barge.empty and "Year" in raw_barge.columns:
+    df_barge = raw_barge.copy()
+    df_barge["Year"]  = pd.to_numeric(df_barge["Year"],  errors="coerce").astype("Int64")
+    df_barge["Month"] = pd.to_numeric(df_barge["Month"], errors="coerce").astype("Int64")
+    df_barge["Tons"]  = pd.to_numeric(df_barge["Tons"].astype(str).str.replace(",",""), errors="coerce").fillna(0)
+    df_barge = df_barge.dropna(subset=["Year","Month"])
+else:
+    df_barge = pd.DataFrame(columns=["Year","Month","Commodity","Tons","Barges","River","Direction"])
 
 # ── Clean: Rail ──────────────────────────────────────────────────────────────
-df_rail = raw_rail.copy()
-df_rail["Year"]     = pd.to_numeric(df_rail["Year"],     errors="coerce").astype("Int64")
-df_rail["Month"]    = pd.to_numeric(df_rail["Month"],    errors="coerce").astype("Int64")
-df_rail["Week"]     = pd.to_numeric(df_rail["Week"],     errors="coerce").astype("Int64")
-df_rail["Carloads"] = pd.to_numeric(df_rail["Carloads"].astype(str).str.replace(",",""), errors="coerce").fillna(0)
-df_rail = df_rail.dropna(subset=["Year","Month","Week"])
+if not raw_rail.empty and "Year" in raw_rail.columns:
+    df_rail = raw_rail.copy()
+    df_rail["Year"]     = pd.to_numeric(df_rail["Year"],     errors="coerce").astype("Int64")
+    df_rail["Month"]    = pd.to_numeric(df_rail["Month"],    errors="coerce").astype("Int64")
+    df_rail["Week"]     = pd.to_numeric(df_rail["Week"],     errors="coerce").astype("Int64")
+    df_rail["Carloads"] = pd.to_numeric(df_rail["Carloads"].astype(str).str.replace(",",""), errors="coerce").fillna(0)
+    df_rail = df_rail.dropna(subset=["Year","Month","Week"])
+else:
+    df_rail = pd.DataFrame(columns=["Year","Month","Week","Railroad","Commodity","Type","Carloads"])
 
 # ── Clean: Imports (dynamic column detection) ─────────────────────────────────
-df_imp = raw_imports.copy()
-cols_lower = {c: c.lower() for c in df_imp.columns}
+df_imp = raw_imports.copy() if not raw_imports.empty else pd.DataFrame()
 
-year_col  = next((c for c in df_imp.columns if "year" in c.lower()), None)
-month_col = next((c for c in df_imp.columns if "month" in c.lower()), None)
+year_col  = next((c for c in df_imp.columns if "year"      in c.lower()), None)
+month_col = next((c for c in df_imp.columns if "month"     in c.lower()), None)
 comm_col  = next((c for c in df_imp.columns if "commodity" in c.lower()), None)
 qty_col   = next((c for c in df_imp.columns
                   if any(k in c.lower() for k in ["ton","quantity","metric","short","amount"])), None)
 
-if year_col:
-    df_imp[year_col] = pd.to_numeric(df_imp[year_col], errors="coerce").astype("Int64")
-if month_col:
-    df_imp[month_col] = pd.to_numeric(df_imp[month_col], errors="coerce").astype("Int64")
-if qty_col:
-    df_imp[qty_col] = pd.to_numeric(
-        df_imp[qty_col].astype(str).str.replace(",",""), errors="coerce"
-    ).fillna(0)
+if not df_imp.empty:
+    if year_col:
+        df_imp[year_col] = pd.to_numeric(df_imp[year_col], errors="coerce").astype("Int64")
+    if month_col:
+        df_imp[month_col] = pd.to_numeric(df_imp[month_col], errors="coerce").astype("Int64")
+    if qty_col:
+        df_imp[qty_col] = pd.to_numeric(
+            df_imp[qty_col].astype(str).str.replace(",",""), errors="coerce"
+        ).fillna(0)
 
 # ── Clean: Rail Tonnage (monthly waybill sample) ─────────────────────────────
-df_rail_tons = raw_rail_tons.copy()
-# Normalize column names to lowercase for safe access
-df_rail_tons.columns = [c.strip() for c in df_rail_tons.columns]
-rt_cols = {c.lower(): c for c in df_rail_tons.columns}
+if not raw_rail_tons.empty:
+    df_rail_tons = raw_rail_tons.copy()
+    df_rail_tons.columns = [c.strip() for c in df_rail_tons.columns]
+    rt_cols = {c.lower(): c for c in df_rail_tons.columns}
 
-# Map expected fields
-rt_year_col  = rt_cols.get("data year") or rt_cols.get("year") or next((v for k,v in rt_cols.items() if "year" in k), None)
-rt_month_col = next((v for k,v in rt_cols.items() if "month" in k), None)
-rt_stcc_col  = rt_cols.get("stcc5 description") or rt_cols.get("stcc5description") or next((v for k,v in rt_cols.items() if "description" in k), None)
-rt_tons_col  = next((v for k,v in rt_cols.items() if "ton" in k and "billed" in k), None) or \
-               next((v for k,v in rt_cols.items() if "ton" in k), None)
+    rt_year_col  = rt_cols.get("data year") or rt_cols.get("year") or next((v for k,v in rt_cols.items() if "year" in k), None)
+    rt_month_col = next((v for k,v in rt_cols.items() if "month" in k), None)
+    rt_stcc_col  = rt_cols.get("stcc5 description") or rt_cols.get("stcc5description") or next((v for k,v in rt_cols.items() if "description" in k), None)
+    rt_tons_col  = next((v for k,v in rt_cols.items() if "ton" in k and "billed" in k), None) or \
+                   next((v for k,v in rt_cols.items() if "ton" in k), None)
 
-# Derive Month from Waybill Date if no dedicated month column
-if rt_month_col is None:
-    wbd_col = next((v for k,v in rt_cols.items() if "waybill" in k), None)
-    if wbd_col:
-        df_rail_tons[wbd_col] = pd.to_datetime(df_rail_tons[wbd_col], errors="coerce")
-        df_rail_tons["_month"] = df_rail_tons[wbd_col].dt.month
-        df_rail_tons["_year"]  = df_rail_tons[wbd_col].dt.year
-        rt_month_col = "_month"
-        rt_year_col  = "_year"
+    if rt_month_col is None:
+        wbd_col = next((v for k,v in rt_cols.items() if "waybill" in k), None)
+        if wbd_col:
+            df_rail_tons[wbd_col] = pd.to_datetime(df_rail_tons[wbd_col], errors="coerce")
+            df_rail_tons["_month"] = df_rail_tons[wbd_col].dt.month
+            df_rail_tons["_year"]  = df_rail_tons[wbd_col].dt.year
+            rt_month_col = "_month"
+            rt_year_col  = "_year"
 
-if rt_year_col:
-    df_rail_tons[rt_year_col]  = pd.to_numeric(df_rail_tons[rt_year_col],  errors="coerce").astype("Int64")
-if rt_month_col:
-    df_rail_tons[rt_month_col] = pd.to_numeric(df_rail_tons[rt_month_col], errors="coerce").astype("Int64")
-if rt_tons_col:
-    df_rail_tons[rt_tons_col]  = pd.to_numeric(
-        df_rail_tons[rt_tons_col].astype(str).str.replace(",",""), errors="coerce"
-    ).fillna(0)
+    if rt_year_col:
+        df_rail_tons[rt_year_col]  = pd.to_numeric(df_rail_tons[rt_year_col],  errors="coerce").astype("Int64")
+    if rt_month_col:
+        df_rail_tons[rt_month_col] = pd.to_numeric(df_rail_tons[rt_month_col], errors="coerce").astype("Int64")
+    if rt_tons_col:
+        df_rail_tons[rt_tons_col]  = pd.to_numeric(
+            df_rail_tons[rt_tons_col].astype(str).str.replace(",",""), errors="coerce"
+        ).fillna(0)
 
-rail_tons_ok = all([rt_year_col, rt_month_col, rt_stcc_col, rt_tons_col])
+    rail_tons_ok = all([rt_year_col, rt_month_col, rt_stcc_col, rt_tons_col])
+else:
+    df_rail_tons = pd.DataFrame()
+    rt_year_col = rt_month_col = rt_stcc_col = rt_tons_col = None
+    rail_tons_ok = False
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def chart_layout(title, xlab, ylab, height=420):
