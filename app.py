@@ -183,52 +183,72 @@ st.markdown(f"""
 # ── Data loading ──────────────────────────────────────────────────────────────
 BASE = "https://agtransport.usda.gov/api/views"
 
+def _fetch_csv(uid, params=None, timeout=120):
+    """Fetch a Socrata dataset as CSV, trying both endpoint styles."""
+    params = params or {}
+    params.setdefault("$limit", 50_000)
+    sess = _session()
+    # Try standard rows.csv endpoint
+    r = sess.get(f"{BASE}/{uid}/rows.csv", params=params, timeout=timeout)
+    if r.status_code == 200 and r.text.strip():
+        return pd.read_csv(StringIO(r.text), thousands=",")
+    # Fallback: Socrata SODA2 export endpoint
+    r2 = sess.get(
+        f"https://agtransport.usda.gov/resource/{uid}.csv",
+        params=params, timeout=timeout
+    )
+    r2.raise_for_status()
+    if not r2.text.strip():
+        raise ValueError(f"Empty response for dataset {uid}")
+    return pd.read_csv(StringIO(r2.text), thousands=",")
+
 @st.cache_data(ttl=86_400, show_spinner=False)
 def load_imports():
-    """rusv-mgid – U.S. Fertilizer Imports by Commodity by Month (Census Bureau)"""
-    r = _session().get(f"{BASE}/rusv-mgid/rows.csv", params={"$limit": 50_000}, timeout=120)
-    r.raise_for_status()
-    return pd.read_csv(StringIO(r.text), thousands=",")
+    return _fetch_csv("rusv-mgid")
 
 @st.cache_data(ttl=86_400, show_spinner=False)
 def load_barge():
-    """4pdq-r8e8 – Monthly Fertilizer Barge Movements (Army Corps of Engineers)"""
-    r = _session().get(f"{BASE}/4pdq-r8e8/rows.csv", params={"$limit": 50_000}, timeout=120)
-    r.raise_for_status()
-    return pd.read_csv(StringIO(r.text), thousands=",")
+    return _fetch_csv("4pdq-r8e8")
 
 @st.cache_data(ttl=3_600, show_spinner=False)
 def load_rail():
-    """tb7q-kn5i – Weekly Rail Carloadings (Surface Transportation Board)"""
-    r = _session().get(f"{BASE}/tb7q-kn5i/rows.csv", params={"$limit": 250_000}, timeout=180)
-    r.raise_for_status()
-    return pd.read_csv(StringIO(r.text), thousands=",")
+    return _fetch_csv("tb7q-kn5i", params={"$limit": 250_000}, timeout=180)
 
 @st.cache_data(ttl=86_400, show_spinner=False)
 def load_rail_tonnage():
-    """xve5-xb56 – Public Use Carload Waybill Sample: monthly fertilizer rail tonnage (STB)"""
     fert_stcc = "('28125','28181','28193','28198','28712','28713')"
-    r = _session().get(
-        f"{BASE}/xve5-xb56/rows.csv",
+    return _fetch_csv(
+        "xve5-xb56",
         params={"$limit": 100_000, "$where": f"stcc5 in{fert_stcc}"},
         timeout=120,
     )
-    r.raise_for_status()
-    return pd.read_csv(StringIO(r.text), thousands=",")
 
+load_errors = {}
 with st.spinner("Loading live USDA data…"):
     try:
-        raw_imports    = load_imports()
-        raw_barge      = load_barge()
-        raw_rail       = load_rail()
-        raw_rail_tons  = load_rail_tonnage()
-        load_err       = None
-    except Exception as exc:
-        load_err = str(exc)
+        raw_imports = load_imports()
+    except Exception as e:
+        load_errors["Fertilizer Imports"] = str(e)
+        raw_imports = pd.DataFrame()
+    try:
+        raw_barge = load_barge()
+    except Exception as e:
+        load_errors["Barge Movements"] = str(e)
+        raw_barge = pd.DataFrame()
+    try:
+        raw_rail = load_rail()
+    except Exception as e:
+        load_errors["Rail Carloadings"] = str(e)
+        raw_rail = pd.DataFrame()
+    try:
+        raw_rail_tons = load_rail_tonnage()
+    except Exception as e:
+        load_errors["Rail Tonnage"] = str(e)
+        raw_rail_tons = pd.DataFrame()
 
-if load_err:
-    st.error(f"Error loading data from USDA: {load_err}")
-    st.stop()
+if load_errors:
+    for dataset, err in load_errors.items():
+        st.warning(f"⚠️ **{dataset}** could not load: {err}")
 
 # ── Clean: Barge ─────────────────────────────────────────────────────────────
 df_barge = raw_barge.copy()
